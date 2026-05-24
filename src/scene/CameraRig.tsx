@@ -8,15 +8,20 @@ const STATIC_POS: [number, number, number] = [0, 1.7, 2.2];
 const STATIC_TARGET: [number, number, number] = [0, 1.25, 0];
 
 /**
- * Camera rig with two modes:
+ * Camera rig with two modes (toggle with F):
  *   - "static": locked over-the-table view (default)
- *   - "orbit":  free orbit around the jar (press F to toggle)
+ *   - "orbit":  free orbit around the jar
+ *
+ * In static mode we add explosion-driven shake by perturbing the camera
+ * position/target every frame.
  */
 export function CameraRig() {
   const cameraMode = useGame((s) => s.cameraMode);
   const setCameraMode = useGame((s) => s.setCameraMode);
+  const shake = useGame((s) => s.cameraShake);
   const { camera } = useThree();
   const target = useRef(new THREE.Vector3(...STATIC_TARGET));
+  const baseTarget = useRef(new THREE.Vector3(...STATIC_TARGET));
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -28,12 +33,19 @@ export function CameraRig() {
     return () => window.removeEventListener("keydown", onKey);
   }, [cameraMode, setCameraMode]);
 
-  // Smoothly bring camera back to static pose when switching to static.
   useFrame((_, dt) => {
     if (cameraMode !== "static") return;
     const targetPos = new THREE.Vector3(...STATIC_POS);
-    camera.position.lerp(targetPos, Math.min(1, dt * 4));
-    target.current.lerp(new THREE.Vector3(...STATIC_TARGET), Math.min(1, dt * 4));
+    const tt = baseTarget.current.copy(new THREE.Vector3(...STATIC_TARGET));
+    if (shake > 0) {
+      const k = shake * 0.12;
+      targetPos.x += (Math.random() - 0.5) * k;
+      targetPos.y += (Math.random() - 0.5) * k * 0.6;
+      tt.x += (Math.random() - 0.5) * k * 0.6;
+      tt.y += (Math.random() - 0.5) * k * 0.6;
+    }
+    camera.position.lerp(targetPos, Math.min(1, dt * 6));
+    target.current.lerp(tt, Math.min(1, dt * 8));
     camera.lookAt(target.current);
   });
 
