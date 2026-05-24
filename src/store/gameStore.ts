@@ -2,6 +2,20 @@ import { create } from "zustand";
 import type { JarEntry, JarState, Shard, TableItem } from "../types";
 import { ITEMS_BY_ID } from "../data/items";
 import { recomputeJar } from "../data/reactions";
+import {
+  sfxPickup,
+  sfxThud,
+  sfxDropInJar,
+  sfxStartPour,
+  sfxBubble,
+  sfxStartBurner,
+  sfxBoom,
+  sfxShatter,
+} from "../audio";
+
+let _stopPourSfx: (() => void) | null = null;
+let _stopBurnerSfx: (() => void) | null = null;
+let _bubbleAccum = 0;
 
 const TABLE_Y = 0.92;
 const FLOOR_Y = 0;
@@ -39,6 +53,9 @@ interface GameState {
   cameraShake: number;
   flash: number;
 
+  // True while the cursor is hovering over the jar drop zone (any held item).
+  overJarHover: boolean;
+
   cameraMode: "static" | "orbit" | "fps";
   tableItems: TableItem[];
 
@@ -50,6 +67,7 @@ interface GameState {
   setPourTilt: (t: number) => void;
   startPour: () => void;
   stopPour: () => void;
+  setOverJarHover: (over: boolean) => void;
   toggleBurner: () => void;
   setCameraMode: (m: GameState["cameraMode"]) => void;
   resetJar: () => void;
@@ -90,9 +108,11 @@ export const useGame = create<GameState>((set, get) => ({
   flash: 0,
   cameraMode: "static",
   tableItems: [],
+  overJarHover: false,
 
   pickUpFromShelf: (itemId, shelfSlot) => {
     if (get().heldItemId) return;
+    sfxPickup();
     set({
       heldItemId: itemId,
       heldOriginShelf: shelfSlot,
@@ -107,6 +127,7 @@ export const useGame = create<GameState>((set, get) => ({
     if (s.heldItemId) return;
     const item = s.tableItems.find((t) => t.id === tableId);
     if (!item) return;
+    sfxPickup();
     set({
       heldItemId: item.itemId,
       heldOriginShelf: null,
@@ -143,6 +164,7 @@ export const useGame = create<GameState>((set, get) => ({
       // the bottle back without adding more. (Player should pour by holding,
       // not by quick-release.)
       if (def.kind === "solid") {
+        sfxDropInJar();
         const entry: JarEntry = {
           id: uid(def.id),
           itemId: def.id,
@@ -197,6 +219,7 @@ export const useGame = create<GameState>((set, get) => ({
     } else if (target === "table") {
       const vx = (s.pointer.x - s.pointerPrev.x) * 12;
       const vz = (s.pointer.z - s.pointerPrev.z) * 12;
+      sfxThud(0.7);
       const ti: TableItem = {
         id: uid("ti"),
         itemId: def.id,
@@ -209,6 +232,7 @@ export const useGame = create<GameState>((set, get) => ({
           (Math.random() - 0.5) * 4,
         ],
         resting: false,
+        lastImpact: 0,
       };
       set({
         tableItems: [...s.tableItems, ti],
@@ -247,12 +271,18 @@ export const useGame = create<GameState>((set, get) => ({
 
   setPourTilt: (t) => set({ pourTilt: Math.max(0, Math.min(1, t)) }),
 
+  setOverJarHover: (over) => {
+    if (get().overJarHover !== over) set({ overJarHover: over });
+  },
+
   startPour: () => {
     const s = get();
     if (s.pouringEntryId) return; // already pouring
     if (!s.heldItemId) return;
     const def = ITEMS_BY_ID[s.heldItemId];
     if (!def || def.kind !== "liquid") return;
+
+    if (!_stopPourSfx) _stopPourSfx = sfxStartPour();
 
     // Reuse the most recent same-liquid entry if it isn't full yet, otherwise
     // start a new entry that will grow over time.
@@ -279,12 +309,25 @@ export const useGame = create<GameState>((set, get) => ({
   stopPour: () => {
     const s = get();
     if (!s.pouringEntryId) return;
+    if (_stopPourSfx) {
+      _stopPourSfx();
+      _stopPourSfx = null;
+    }
     // Drop entries that received zero pour.
     const entries = s.jar.entries.filter((e) => e.kind === "solid" || e.amount > 0.01);
     set({ pouringEntryId: null, jar: { ...s.jar, entries } });
   },
 
-  toggleBurner: () => set((s) => ({ burnerOn: !s.burnerOn })),
+  toggleBurner: () => {
+    const willBeOn = !get().burnerOn;
+    if (willBeOn) {
+      if (!_stopBurnerSfx) _stopBurnerSfx = sfxStartBurner();
+    } else if (_stopBurnerSfx) {
+      _stopBurnerSfx();
+      _stopBurnerSfx = null;
+    }
+    set({ burnerOn: willBeOn });
+  },
   setCameraMode: (m) => set({ cameraMode: m }),
 
   resetJar: () =>
@@ -314,6 +357,16 @@ export const useGame = create<GameState>((set, get) => ({
 
   triggerExplosion: () => {
     const s = get();
+    sfxBoom();
+    sfxShatter();
+    if (_stopBurnerSfx) {
+      _stopBurnerSfx();
+      _stopBurnerSfx = null;
+    }
+    if (_stopPourSfx) {
+      _stopPourSfx();
+      _stopPourSfx = null;
+    }
     const shards: Shard[] = [];
     for (let i = 0; i < 28; i++) {
       const a = Math.random() * Math.PI * 2;
@@ -405,6 +458,18 @@ export const useGame = create<GameState>((set, get) => ({
       return;
     }
 
+    // Bubble pop SFX: probability scales with bubble intensity. Capped to
+    // ~5 pops/sec so it never gets noisy.
+    if (newJar.bubbles > 0.1) {
+      _bubbleAccum += dt * newJar.bubbles * 4;
+      while (_bubbleAccum > 1) {
+        _bubbleAccum -= 1;
+        sfxBubble();
+      }
+    } else {
+      _bubbleAccum = 0;
+    }
+
     // Table physics
     const items = s.tableItems.map((t) => {
       if (t.resting) return t;
@@ -424,8 +489,13 @@ export const useGame = create<GameState>((set, get) => ({
         Math.hypot(nx - JAR_CENTER[0], nz - JAR_CENTER[2]) < JAR_BLOCK_R &&
         ny < TABLE_Y + 0.6;
       const half = 0.07;
+      let lastImpact = t.lastImpact;
       if (onTableXZ && !onJar && ny < TABLE_Y + half) {
         ny = TABLE_Y + half;
+        if (vy < -0.8) {
+          sfxThud(Math.min(1, -vy * 0.2));
+          lastImpact = performance.now();
+        }
         if (vy < 0) vy = -vy * 0.32;
         vx *= 0.86; vz *= 0.86;
         ax *= 0.7; ay *= 0.85; az *= 0.7;
@@ -441,6 +511,10 @@ export const useGame = create<GameState>((set, get) => ({
       }
       if (!onTableXZ && ny < FLOOR_Y + half) {
         ny = FLOOR_Y + half;
+        if (vy < -0.8) {
+          sfxThud(Math.min(1, -vy * 0.18));
+          lastImpact = performance.now();
+        }
         if (vy < 0) vy = -vy * 0.18;
         vx *= 0.7; vz *= 0.7;
         ax *= 0.5; ay *= 0.7; az *= 0.5;
@@ -457,6 +531,7 @@ export const useGame = create<GameState>((set, get) => ({
         rotation: [nrx, nry, nrz] as [number, number, number],
         angularVelocity: [ax, ay, az] as [number, number, number],
         resting,
+        lastImpact,
       };
     });
     patch.tableItems = items;

@@ -92,10 +92,14 @@ export function DragController() {
 
       // Manage pour & tilt for the held liquid bottle.
       const def = ITEMS_BY_ID[s.heldItemId];
-      if (def && def.kind === "liquid" && lastJarTop.current) {
-        const dx = lastJarTop.current.x - JAR_CENTER[0];
-        const dz = lastJarTop.current.z - JAR_CENTER[2];
-        const overJar = Math.hypot(dx, dz) < JAR_DROP_RADIUS;
+      const overJar = !!lastJarTop.current && (() => {
+        const dx = lastJarTop.current!.x - JAR_CENTER[0];
+        const dz = lastJarTop.current!.z - JAR_CENTER[2];
+        return Math.hypot(dx, dz) < JAR_DROP_RADIUS;
+      })();
+      useGame.getState().setOverJarHover(overJar);
+
+      if (def && def.kind === "liquid") {
         if (overJar) {
           setPourTilt(1);
           startPour();
@@ -122,6 +126,7 @@ export function DragController() {
         const t = lastTableTop.current;
         if (Math.abs(t.x) < TABLE_HALF_X && Math.abs(t.z) < TABLE_HALF_Z) target = "table";
       }
+      useGame.getState().setOverJarHover(false);
       release(target);
     }
 

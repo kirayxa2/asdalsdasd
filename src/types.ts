@@ -67,6 +67,7 @@ export interface TableItem {
   rotation: [number, number, number];
   angularVelocity: [number, number, number];
   resting: boolean;
+  lastImpact: number; // performance.now() of last surface impact (for squash anim)
 }
 
 export interface Shard {

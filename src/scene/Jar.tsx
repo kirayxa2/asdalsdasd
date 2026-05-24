@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { useGame, JAR_CENTER, JAR_R } from "../store/gameStore";
@@ -7,23 +7,58 @@ import { ItemMesh } from "./ItemMesh";
 import { Bubbles } from "./effects/Bubbles";
 
 const JAR_HEIGHT = 0.40;
-
 export const JAR_POSITION = JAR_CENTER;
 
 /**
- * Glass jar with closed bottom, transparent walls, dynamic liquid inside,
- * floating solids, bubble particles, and radioactive glow light.
+ * Glass jar shaped via a Lathe of a hand-tuned 2D profile, so we get a real
+ * jar silhouette (rounded shoulder + neck + rim) instead of a plain cylinder.
+ * Liquid inside is also a Lathe scaled in Y for the fill level.
+ *
+ * Also draws a glowing green ring above the mouth when the player is holding
+ * an item over the jar — a clear "drop here" indicator.
  */
 export function Jar() {
   const jar = useGame((s) => s.jar);
+  const overJar = useGame((s) => s.overJarHover);
+  const heldItemId = useGame((s) => s.heldItemId);
   const groupRef = useRef<THREE.Group>(null);
   const liquidRef = useRef<THREE.Mesh>(null);
   const liquidMat = useRef<THREE.MeshStandardMaterial>(null);
   const liquidTopRef = useRef<THREE.Mesh>(null);
   const liquidTopMat = useRef<THREE.MeshStandardMaterial>(null);
   const glowLight = useRef<THREE.PointLight>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
+  const ringMat = useRef<THREE.MeshBasicMaterial>(null);
 
-  useFrame(() => {
+  const glassProfile = useMemo(() => {
+    const r = JAR_R;
+    const h = JAR_HEIGHT;
+    return [
+      new THREE.Vector2(0.0, -h / 2),
+      new THREE.Vector2(r * 0.7, -h / 2),
+      new THREE.Vector2(r * 0.95, -h / 2 + 0.04),
+      new THREE.Vector2(r * 1.0, -h / 2 + 0.10),
+      new THREE.Vector2(r * 1.02, 0),
+      new THREE.Vector2(r * 1.0, h / 2 - 0.10),
+      new THREE.Vector2(r * 0.85, h / 2 - 0.04),
+      new THREE.Vector2(r * 0.85, h / 2),
+    ];
+  }, []);
+
+  const liquidProfile = useMemo(() => {
+    const r = JAR_R - 0.018;
+    const h = JAR_HEIGHT;
+    return [
+      new THREE.Vector2(0.0, -h / 2 + 0.005),
+      new THREE.Vector2(r * 0.7, -h / 2 + 0.005),
+      new THREE.Vector2(r * 0.94, -h / 2 + 0.045),
+      new THREE.Vector2(r * 1.0, -h / 2 + 0.105),
+      new THREE.Vector2(r * 1.02, 0),
+      new THREE.Vector2(r * 1.02, h / 2),
+    ];
+  }, []);
+
+  useFrame((_, dt) => {
     if (groupRef.current) {
       const sx = (Math.random() - 0.5) * jar.shake * 0.04;
       const sz = (Math.random() - 0.5) * jar.shake * 0.04;
@@ -33,13 +68,15 @@ export function Jar() {
         JAR_POSITION[2] + sz,
       );
     }
-    const h = JAR_HEIGHT * jar.liquidLevel;
+    const fillRatio = Math.max(0.001, jar.liquidLevel);
     if (liquidRef.current) {
-      liquidRef.current.scale.y = Math.max(0.001, h / JAR_HEIGHT);
-      liquidRef.current.position.y = -JAR_HEIGHT / 2 + h / 2;
+      liquidRef.current.scale.y = fillRatio;
+      liquidRef.current.position.y =
+        -JAR_HEIGHT / 2 + (JAR_HEIGHT * fillRatio) / 2 - 0.002;
     }
     if (liquidTopRef.current) {
-      liquidTopRef.current.position.y = -JAR_HEIGHT / 2 + h - 0.001;
+      liquidTopRef.current.position.y =
+        -JAR_HEIGHT / 2 + JAR_HEIGHT * jar.liquidLevel - 0.001;
       liquidTopRef.current.visible = jar.liquidLevel > 0.02;
     }
     if (liquidMat.current) {
@@ -57,36 +94,43 @@ export function Jar() {
       glowLight.current.intensity = jar.glow * 2.5;
       glowLight.current.color.set(jar.liquidColor);
     }
+    if (ringRef.current && ringMat.current) {
+      const visible = !!heldItemId && overJar;
+      const targetA = visible ? 0.85 : 0;
+      ringMat.current.opacity += (targetA - ringMat.current.opacity) * Math.min(1, dt * 12);
+      const pulse = 1 + Math.sin(performance.now() * 0.006) * 0.06;
+      ringRef.current.scale.set(pulse, pulse, pulse);
+    }
   });
 
   return (
     <group ref={groupRef} position={JAR_POSITION}>
-      {/* Outer glass: closed cylinder using two passes for nicer transparency.
-          Single physical material with transmission gives the cleanest look. */}
-      <mesh castShadow position={[0, 0, 0]}>
-        <cylinderGeometry args={[JAR_R, JAR_R, JAR_HEIGHT, 40, 1, false]} />
+      {/* Glass body (lathe) */}
+      <mesh castShadow>
+        <latheGeometry args={[glassProfile, 48]} />
         <meshPhysicalMaterial
           color="#eef6ff"
-          roughness={0.05}
+          roughness={0.04}
           metalness={0}
           transmission={0.95}
           thickness={0.25}
           ior={1.45}
-          attenuationColor="#e0eeff"
-          attenuationDistance={1.2}
+          attenuationColor="#dceeff"
+          attenuationDistance={1.4}
           transparent
           opacity={0.55}
+          side={THREE.DoubleSide}
         />
       </mesh>
-      {/* Rim */}
+      {/* Rim torus */}
       <mesh position={[0, JAR_HEIGHT / 2, 0]}>
-        <torusGeometry args={[JAR_R, 0.012, 12, 40]} />
+        <torusGeometry args={[JAR_R * 0.85, 0.012, 12, 40]} />
         <meshStandardMaterial color="#bcd4e6" roughness={0.3} />
       </mesh>
 
-      {/* Liquid body */}
-      <mesh ref={liquidRef} position={[0, 0, 0]}>
-        <cylinderGeometry args={[JAR_R - 0.012, JAR_R - 0.012, JAR_HEIGHT, 40]} />
+      {/* Liquid (lathe) */}
+      <mesh ref={liquidRef}>
+        <latheGeometry args={[liquidProfile, 40]} />
         <meshStandardMaterial
           ref={liquidMat}
           color="#1a1a1a"
@@ -95,9 +139,9 @@ export function Jar() {
           depthWrite={false}
         />
       </mesh>
-      {/* Liquid top disk (surface) — gives a clear meniscus */}
-      <mesh ref={liquidTopRef} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
-        <circleGeometry args={[JAR_R - 0.013, 40]} />
+      {/* Surface meniscus disk */}
+      <mesh ref={liquidTopRef} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[JAR_R - 0.02, 40]} />
         <meshStandardMaterial
           ref={liquidTopMat}
           color="#1a1a1a"
@@ -108,7 +152,6 @@ export function Jar() {
       </mesh>
 
       <JarContents />
-
       <pointLight ref={glowLight} color="#88ff66" intensity={0} distance={2} />
 
       <Bubbles
@@ -118,6 +161,24 @@ export function Jar() {
         liquidBottom={-JAR_HEIGHT / 2}
         intensity={jar.bubbles}
       />
+
+      {/* Drop zone indicator: glowing green ring above the jar mouth */}
+      <mesh
+        ref={ringRef}
+        position={[0, JAR_HEIGHT / 2 + 0.06, 0]}
+        rotation={[-Math.PI / 2, 0, 0]}
+      >
+        <ringGeometry args={[JAR_R * 0.95, JAR_R * 1.15, 64]} />
+        <meshBasicMaterial
+          ref={ringMat}
+          color="#7afa6e"
+          transparent
+          opacity={0}
+          toneMapped={false}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
     </group>
   );
 }
