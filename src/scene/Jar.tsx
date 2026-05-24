@@ -1,43 +1,57 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { useGame } from "../store/gameStore";
+import { useGame, JAR_CENTER, JAR_R } from "../store/gameStore";
 import { ITEMS_BY_ID } from "../data/items";
 import { ItemMesh } from "./ItemMesh";
 import { Bubbles } from "./effects/Bubbles";
 
-const JAR_RADIUS = 0.18;
-const JAR_HEIGHT = 0.4;
+const JAR_HEIGHT = 0.40;
 
-export const JAR_POSITION: [number, number, number] = [0, 1.16, 0];
+export const JAR_POSITION = JAR_CENTER;
 
 /**
- * Glass jar standing on the burner. Contains liquid + dropped solids + bubbles.
- * Reacts to jar.shake / glow.
+ * Glass jar with closed bottom, transparent walls, dynamic liquid inside,
+ * floating solids, bubble particles, and radioactive glow light.
  */
 export function Jar() {
   const jar = useGame((s) => s.jar);
   const groupRef = useRef<THREE.Group>(null);
   const liquidRef = useRef<THREE.Mesh>(null);
   const liquidMat = useRef<THREE.MeshStandardMaterial>(null);
+  const liquidTopRef = useRef<THREE.Mesh>(null);
+  const liquidTopMat = useRef<THREE.MeshStandardMaterial>(null);
   const glowLight = useRef<THREE.PointLight>(null);
 
   useFrame(() => {
     if (groupRef.current) {
       const sx = (Math.random() - 0.5) * jar.shake * 0.04;
       const sz = (Math.random() - 0.5) * jar.shake * 0.04;
-      groupRef.current.position.set(JAR_POSITION[0] + sx, JAR_POSITION[1], JAR_POSITION[2] + sz);
+      groupRef.current.position.set(
+        JAR_POSITION[0] + sx,
+        JAR_POSITION[1],
+        JAR_POSITION[2] + sz,
+      );
     }
+    const h = JAR_HEIGHT * jar.liquidLevel;
     if (liquidRef.current) {
-      const h = JAR_HEIGHT * jar.liquidLevel;
       liquidRef.current.scale.y = Math.max(0.001, h / JAR_HEIGHT);
       liquidRef.current.position.y = -JAR_HEIGHT / 2 + h / 2;
+    }
+    if (liquidTopRef.current) {
+      liquidTopRef.current.position.y = -JAR_HEIGHT / 2 + h - 0.001;
+      liquidTopRef.current.visible = jar.liquidLevel > 0.02;
     }
     if (liquidMat.current) {
       liquidMat.current.color.set(jar.liquidColor);
       liquidMat.current.emissive.set(jar.liquidColor);
-      liquidMat.current.emissiveIntensity = 0.15 + jar.glow * 1.4;
-      liquidMat.current.opacity = jar.liquidLevel > 0 ? 0.85 : 0;
+      liquidMat.current.emissiveIntensity = 0.05 + jar.glow * 1.4;
+      liquidMat.current.opacity = jar.liquidLevel > 0 ? 0.92 : 0;
+    }
+    if (liquidTopMat.current) {
+      liquidTopMat.current.color.set(jar.liquidColor);
+      liquidTopMat.current.emissive.set(jar.liquidColor);
+      liquidTopMat.current.emissiveIntensity = 0.1 + jar.glow * 1.6;
     }
     if (glowLight.current) {
       glowLight.current.intensity = jar.glow * 2.5;
@@ -45,46 +59,34 @@ export function Jar() {
     }
   });
 
-  const liquidTopWorld = JAR_POSITION[1] - JAR_HEIGHT / 2 + JAR_HEIGHT * jar.liquidLevel;
-  const liquidBottomWorld = JAR_POSITION[1] - JAR_HEIGHT / 2;
-
   return (
     <group ref={groupRef} position={JAR_POSITION}>
-      {/* glass body */}
+      {/* Outer glass: closed cylinder using two passes for nicer transparency.
+          Single physical material with transmission gives the cleanest look. */}
       <mesh castShadow position={[0, 0, 0]}>
-        <cylinderGeometry args={[JAR_RADIUS, JAR_RADIUS, JAR_HEIGHT, 32, 1, true]} />
+        <cylinderGeometry args={[JAR_R, JAR_R, JAR_HEIGHT, 40, 1, false]} />
         <meshPhysicalMaterial
-          color="#cfeaff"
+          color="#eef6ff"
           roughness={0.05}
-          transmission={0.92}
-          thickness={0.4}
+          metalness={0}
+          transmission={0.95}
+          thickness={0.25}
           ior={1.45}
+          attenuationColor="#e0eeff"
+          attenuationDistance={1.2}
           transparent
-          opacity={0.6}
-          side={THREE.DoubleSide}
+          opacity={0.55}
         />
       </mesh>
-      {/* bottom disk */}
-      <mesh position={[0, -JAR_HEIGHT / 2 + 0.005, 0]}>
-        <cylinderGeometry args={[JAR_RADIUS, JAR_RADIUS, 0.01, 32]} />
-        <meshPhysicalMaterial
-          color="#cfeaff"
-          roughness={0.05}
-          transmission={0.92}
-          thickness={0.4}
-          transparent
-          opacity={0.6}
-        />
-      </mesh>
-      {/* rim */}
+      {/* Rim */}
       <mesh position={[0, JAR_HEIGHT / 2, 0]}>
-        <torusGeometry args={[JAR_RADIUS, 0.012, 12, 32]} />
+        <torusGeometry args={[JAR_R, 0.012, 12, 40]} />
         <meshStandardMaterial color="#bcd4e6" roughness={0.3} />
       </mesh>
 
-      {/* liquid */}
-      <mesh ref={liquidRef} position={[0, 0, 0]} renderOrder={1}>
-        <cylinderGeometry args={[JAR_RADIUS - 0.01, JAR_RADIUS - 0.01, JAR_HEIGHT, 32]} />
+      {/* Liquid body */}
+      <mesh ref={liquidRef} position={[0, 0, 0]}>
+        <cylinderGeometry args={[JAR_R - 0.012, JAR_R - 0.012, JAR_HEIGHT, 40]} />
         <meshStandardMaterial
           ref={liquidMat}
           color="#1a1a1a"
@@ -93,18 +95,28 @@ export function Jar() {
           depthWrite={false}
         />
       </mesh>
+      {/* Liquid top disk (surface) — gives a clear meniscus */}
+      <mesh ref={liquidTopRef} position={[0, 0, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <circleGeometry args={[JAR_R - 0.013, 40]} />
+        <meshStandardMaterial
+          ref={liquidTopMat}
+          color="#1a1a1a"
+          transparent
+          opacity={0.95}
+          depthWrite={false}
+        />
+      </mesh>
 
-      {/* contents (solids floating in the jar, scaled by integrity) */}
       <JarContents />
 
-      {/* glow light from radioactive content */}
       <pointLight ref={glowLight} color="#88ff66" intensity={0} distance={2} />
 
-      {/* bubbles particle system, expressed in world coordinates of jar */}
-      <BubblesProxy
-        bubbles={jar.bubbles}
-        liquidTop={liquidTopWorld - JAR_POSITION[1]}
-        liquidBottom={liquidBottomWorld - JAR_POSITION[1]}
+      <Bubbles
+        center={[0, 0, 0]}
+        radius={JAR_R - 0.02}
+        liquidTop={-JAR_HEIGHT / 2 + JAR_HEIGHT * jar.liquidLevel}
+        liquidBottom={-JAR_HEIGHT / 2}
+        intensity={jar.bubbles}
       />
     </group>
   );
@@ -112,45 +124,23 @@ export function Jar() {
 
 function JarContents() {
   const entries = useGame((s) => s.jar.entries);
+  const solids = entries.filter((e) => e.kind === "solid");
   return (
     <>
-      {entries
-        .filter((e) => e.kind === "solid")
-        .map((e, idx) => {
-          const def = ITEMS_BY_ID[e.itemId];
-          if (!def) return null;
-          // Arrange solids in a small ring at the bottom of the jar.
-          const angle = (idx / Math.max(1, entries.length)) * Math.PI * 2;
-          const r = entries.length > 1 ? 0.06 : 0;
-          const x = Math.cos(angle) * r;
-          const z = Math.sin(angle) * r;
-          const y = -JAR_HEIGHT / 2 + 0.07 + (idx % 3) * 0.02;
-          return (
-            <group key={e.id} position={[x, y, z]} scale={0.7}>
-              <ItemMesh def={def} integrity={e.integrity} />
-            </group>
-          );
-        })}
+      {solids.map((e, idx) => {
+        const def = ITEMS_BY_ID[e.itemId];
+        if (!def) return null;
+        const angle = (idx / Math.max(1, solids.length)) * Math.PI * 2;
+        const r = solids.length > 1 ? 0.06 : 0;
+        const x = Math.cos(angle) * r;
+        const z = Math.sin(angle) * r;
+        const y = -JAR_HEIGHT / 2 + 0.07 + (idx % 3) * 0.02;
+        return (
+          <group key={e.id} position={[x, y, z]} scale={0.7}>
+            <ItemMesh def={def} integrity={e.integrity} />
+          </group>
+        );
+      })}
     </>
-  );
-}
-
-function BubblesProxy({
-  bubbles,
-  liquidTop,
-  liquidBottom,
-}: {
-  bubbles: number;
-  liquidTop: number;
-  liquidBottom: number;
-}) {
-  return (
-    <Bubbles
-      center={[0, 0, 0]}
-      radius={JAR_RADIUS - 0.02}
-      liquidTop={liquidTop}
-      liquidBottom={liquidBottom}
-      intensity={bubbles}
-    />
   );
 }

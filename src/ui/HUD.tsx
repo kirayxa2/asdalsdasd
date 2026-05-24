@@ -45,6 +45,8 @@ export function HUD() {
   const entries = useGame((s) => s.jar.entries);
   const danger = useGame((s) => s.jar.danger);
   const tableItemsCount = useGame((s) => s.tableItems.length);
+  const heldItemId = useGame((s) => s.heldItemId);
+  const pouring = useGame((s) => !!s.pouringEntryId);
 
   const counts: Record<string, number> = {};
   for (const e of entries) counts[e.itemId] = (counts[e.itemId] ?? 0) + 1;
@@ -55,8 +57,10 @@ export function HUD() {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
         <div style={panel}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Lab Sim</div>
-          <div style={{ opacity: 0.75, fontSize: 12 }}>
-            Hold an item · drag over jar to drop in · drop on table to leave it · F = camera
+          <div style={{ opacity: 0.75, fontSize: 12, lineHeight: 1.5 }}>
+            Hold an item · move it freely · scroll wheel to lift/lower<br />
+            Drop on the jar to add · drop on the table to leave it<br />
+            Hold a bottle over the jar to <b>pour</b> · F = camera
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -71,10 +75,19 @@ export function HUD() {
       </div>
 
       {/* Bottom bar */}
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+          gap: 12,
+        }}
+      >
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           <div style={panel}>
-            <div style={{ marginBottom: 6, fontWeight: 600 }}>In the jar</div>
+            <div style={{ marginBottom: 6, fontWeight: 600 }}>
+              In the jar {pouring && <span style={{ color: "#7afa6e" }}>· POURING</span>}
+            </div>
             {entries.length === 0 ? (
               <div style={{ opacity: 0.55 }}>empty</div>
             ) : (
@@ -99,6 +112,11 @@ export function HUD() {
             {tableItemsCount > 0 && (
               <div style={{ opacity: 0.55, fontSize: 11, marginTop: 6 }}>
                 {tableItemsCount} item{tableItemsCount === 1 ? "" : "s"} on the table
+              </div>
+            )}
+            {heldItemId && (
+              <div style={{ opacity: 0.55, fontSize: 11, marginTop: 6 }}>
+                Holding: <b>{ITEMS_BY_ID[heldItemId]?.name ?? heldItemId}</b>
               </div>
             )}
           </div>

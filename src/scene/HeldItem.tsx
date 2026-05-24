@@ -1,38 +1,29 @@
 import { useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { useGame } from "../store/gameStore";
+import { useGame, JAR_CENTER } from "../store/gameStore";
 import { ITEMS_BY_ID } from "../data/items";
 import { ItemMesh } from "./ItemMesh";
-import { JAR_POSITION } from "./Jar";
 
 /**
- * The item the player is currently holding (follows pointer in world space).
- * Liquids tilt automatically when hovering over the jar.
+ * Item attached to the cursor. Smooth-follows pointer. When pouring, draws
+ * a falling liquid stream from the bottle neck down to the jar top.
  */
 export function HeldItem() {
   const heldItemId = useGame((s) => s.heldItemId);
   const pointer = useGame((s) => s.pointer);
-  const setPourTilt = useGame((s) => s.setPourTilt);
   const pourTilt = useGame((s) => s.pourTilt);
+  const pouringEntryId = useGame((s) => s.pouringEntryId);
   const groupRef = useRef<THREE.Group>(null);
+  const streamRef = useRef<THREE.Mesh>(null);
 
   useFrame((_, dt) => {
     if (!groupRef.current || !heldItemId) return;
-    // Smooth follow
     const target = new THREE.Vector3(pointer.x, pointer.y, pointer.z);
-    groupRef.current.position.lerp(target, Math.min(1, dt * 20));
+    groupRef.current.position.lerp(target, Math.min(1, dt * 22));
 
-    // Auto-tilt liquids when over the jar
-    const def = ITEMS_BY_ID[heldItemId];
-    if (def?.kind === "liquid") {
-      const dx = pointer.x - JAR_POSITION[0];
-      const dz = pointer.z - JAR_POSITION[2];
-      const overJar = Math.hypot(dx, dz) < 0.3 && pointer.y > JAR_POSITION[1] - 0.1;
-      const targetTilt = overJar ? 1 : 0;
-      setPourTilt(pourTilt + (targetTilt - pourTilt) * Math.min(1, dt * 6));
-    } else if (pourTilt !== 0) {
-      setPourTilt(0);
+    if (streamRef.current) {
+      streamRef.current.visible = !!pouringEntryId;
     }
   });
 
@@ -40,18 +31,37 @@ export function HeldItem() {
   const def = ITEMS_BY_ID[heldItemId];
   if (!def) return null;
 
+  // Compute stream length from current bottle position down to jar opening.
+  const fromY = pointer.y - 0.15;
+  const toY = JAR_CENTER[1] + 0.18;
+  const streamLen = Math.max(0.05, fromY - toY);
+
   return (
     <group ref={groupRef} position={[pointer.x, pointer.y, pointer.z]}>
-      <ItemMesh def={def} highlighted tilt={-pourTilt * 1.3} />
+      {/* Tilt visually only if pouring (pourTilt=1) */}
+      <group rotation={[0, 0, -pourTilt * 1.4]}>
+        <ItemMesh def={def} highlighted />
+      </group>
 
-      {/* Pouring liquid stream */}
-      {def.kind === "liquid" && pourTilt > 0.4 && (
-        <mesh position={[0, -0.18, 0]}>
-          <cylinderGeometry args={[0.012, 0.012, 0.4, 8]} />
-          <meshBasicMaterial
+      {/* Pouring stream — drawn between bottle neck (local) and jar top in world.
+          We draw it in WORLD space by attaching to the held group with offsets. */}
+      {def.kind === "liquid" && (
+        <mesh
+          ref={streamRef}
+          visible={!!pouringEntryId}
+          position={[
+            JAR_CENTER[0] - pointer.x,
+            -streamLen / 2 - 0.1,
+            JAR_CENTER[2] - pointer.z,
+          ]}
+        >
+          <cylinderGeometry args={[0.018, 0.012, streamLen, 8]} />
+          <meshStandardMaterial
             color={def.liquidColor ?? def.color}
+            emissive={def.liquidColor ?? def.color}
+            emissiveIntensity={0.3}
             transparent
-            opacity={pourTilt}
+            opacity={0.85}
           />
         </mesh>
       )}
