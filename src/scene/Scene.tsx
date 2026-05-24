@@ -6,9 +6,11 @@ import { Jar, JAR_POSITION } from "./Jar";
 import { HeldItem } from "./HeldItem";
 import { DragController } from "./DragController";
 import { CameraRig } from "./CameraRig";
+import { TableItems } from "./TableItems";
 import { Smoke } from "./effects/Smoke";
 import { Sparks } from "./effects/Sparks";
 import { Explosion } from "./effects/Explosion";
+import { Shards } from "./effects/Shards";
 import { useGame } from "../store/gameStore";
 
 /**
@@ -19,9 +21,10 @@ export function Scene() {
   const jarSmoke = useGame((s) => s.jar.smoke);
   const jarSparks = useGame((s) => s.jar.sparks);
   const jarLiquidColor = useGame((s) => s.jar.liquidColor);
+  const explosionActive = useGame((s) => s.explosion.active);
 
   useFrame((_, dt) => {
-    tick(Math.min(0.05, dt)); // clamp dt to avoid huge jumps after tab switch
+    tick(Math.min(0.05, dt));
   });
 
   return (
@@ -35,12 +38,13 @@ export function Scene() {
 
       {/* Effects rooted at the jar */}
       <group position={[JAR_POSITION[0], JAR_POSITION[1] + 0.22, JAR_POSITION[2]]}>
-        <Smoke origin={[0, 0, 0]} intensity={jarSmoke} color={jarLiquidColor} />
+        <Smoke origin={[0, 0, 0]} intensity={Math.max(jarSmoke, explosionActive ? 1 : 0)} color={jarLiquidColor} />
       </group>
       <group position={JAR_POSITION}>
         <Sparks origin={[0, 0.05, 0]} intensity={jarSparks} />
       </group>
-      <Explosion position={[JAR_POSITION[0], JAR_POSITION[1], JAR_POSITION[2]]} />
+      <Explosion position={[JAR_POSITION[0], JAR_POSITION[1] + 0.05, JAR_POSITION[2]]} />
+      <Shards />
 
       {/* Shelves arranged around the table */}
       <Shelf
@@ -65,6 +69,9 @@ export function Scene() {
         rotationY={-Math.PI / 2}
         itemIds={["uranium"]}
       />
+
+      {/* Items lying on the table (after being dropped) */}
+      <TableItems />
 
       {/* Held item floats with the cursor */}
       <HeldItem />

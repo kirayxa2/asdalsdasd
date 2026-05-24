@@ -56,7 +56,7 @@ function ShelfSlot({
   const [hover, setHover] = useState(false);
   const heldItemId = useGame((s) => s.heldItemId);
   const heldOriginShelf = useGame((s) => s.heldOriginShelf);
-  const pickUp = useGame((s) => s.pickUp);
+  const pickUp = useGame((s) => s.pickUpFromShelf);
 
   // Hide this slot if its item is currently held.
   const isHeldFromHere = heldItemId === def.id && heldOriginShelf === slotId;

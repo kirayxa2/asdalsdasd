@@ -39,10 +39,12 @@ export function HUD() {
   const burnerOn = useGame((s) => s.burnerOn);
   const toggleBurner = useGame((s) => s.toggleBurner);
   const resetJar = useGame((s) => s.resetJar);
+  const resetAll = useGame((s) => s.resetAll);
   const cameraMode = useGame((s) => s.cameraMode);
   const setCameraMode = useGame((s) => s.setCameraMode);
   const entries = useGame((s) => s.jar.entries);
   const danger = useGame((s) => s.jar.danger);
+  const tableItemsCount = useGame((s) => s.tableItems.length);
 
   const counts: Record<string, number> = {};
   for (const e of entries) counts[e.itemId] = (counts[e.itemId] ?? 0) + 1;
@@ -54,7 +56,7 @@ export function HUD() {
         <div style={panel}>
           <div style={{ fontWeight: 700, marginBottom: 4 }}>Lab Sim</div>
           <div style={{ opacity: 0.75, fontSize: 12 }}>
-            Drag items into the jar. Pour liquids. Heat. See what happens.
+            Hold an item · drag over jar to drop in · drop on table to leave it · F = camera
           </div>
         </div>
         <div style={{ display: "flex", gap: 8 }}>
@@ -94,6 +96,11 @@ export function HUD() {
                 ))}
               </div>
             )}
+            {tableItemsCount > 0 && (
+              <div style={{ opacity: 0.55, fontSize: 11, marginTop: 6 }}>
+                {tableItemsCount} item{tableItemsCount === 1 ? "" : "s"} on the table
+              </div>
+            )}
           </div>
           <div style={panel}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
@@ -123,8 +130,11 @@ export function HUD() {
         </div>
 
         <div style={{ display: "flex", gap: 8 }}>
-          <button style={button(false)} onClick={resetJar}>
+          <button style={button(false)} onClick={resetJar} title="Empty the jar">
             Reset jar
+          </button>
+          <button style={button(false)} onClick={resetAll} title="Clear everything">
+            Clear all
           </button>
           <button
             style={button(burnerOn, burnerOn && danger > 0.7)}

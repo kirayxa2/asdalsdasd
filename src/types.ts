@@ -59,3 +59,25 @@ export interface JarState {
   danger: number;        // 0..1, when >= 1 and heated -> explode
   shake: number;         // 0..1 transient shake (for explosion preview)
 }
+
+// Item lying on the table with simple physics integration.
+export interface TableItem {
+  id: string;
+  itemId: string;
+  position: [number, number, number];
+  velocity: [number, number, number];
+  rotation: [number, number, number];      // euler
+  angularVelocity: [number, number, number];
+  resting: boolean;                        // true once it stops moving
+}
+
+// Glass shard flying away from an explosion.
+export interface Shard {
+  id: string;
+  position: [number, number, number];
+  velocity: [number, number, number];
+  rotation: [number, number, number];
+  angularVelocity: [number, number, number];
+  life: number;
+  size: number;
+}

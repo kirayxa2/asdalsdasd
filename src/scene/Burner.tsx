@@ -4,23 +4,31 @@ import * as THREE from "three";
 import { useGame } from "../store/gameStore";
 
 /**
- * Bunsen-burner-ish base + animated flame above when on.
+ * Bunsen-burner-ish base + multi-layer animated flame above. The flame is
+ * built from several stacked cones with additive blending and per-frame
+ * jitter so it feels alive.
  */
 export function Burner({ position }: { position: [number, number, number] }) {
   const burnerOn = useGame((s) => s.burnerOn);
   const flame = useRef<THREE.Group>(null);
-  const flameMat1 = useRef<THREE.MeshBasicMaterial>(null);
-  const flameMat2 = useRef<THREE.MeshBasicMaterial>(null);
+  const matBlue = useRef<THREE.MeshBasicMaterial>(null);
+  const matYellow = useRef<THREE.MeshBasicMaterial>(null);
+  const matCore = useRef<THREE.MeshBasicMaterial>(null);
+  const heatLight = useRef<THREE.PointLight>(null);
 
-  useFrame((_, dt) => {
+  useFrame(() => {
     if (!flame.current) return;
     const target = burnerOn ? 1 : 0;
-    flame.current.scale.y += (target - flame.current.scale.y) * Math.min(1, dt * 6);
-    flame.current.scale.x = 0.85 + Math.sin(performance.now() * 0.02) * 0.08;
-    flame.current.scale.z = 0.85 + Math.cos(performance.now() * 0.018) * 0.08;
-    const flicker = 0.85 + Math.sin(performance.now() * 0.04) * 0.15;
-    if (flameMat1.current) flameMat1.current.opacity = 0.9 * flicker * (burnerOn ? 1 : 0);
-    if (flameMat2.current) flameMat2.current.opacity = 0.7 * flicker * (burnerOn ? 1 : 0);
+    flame.current.scale.y += (target - flame.current.scale.y) * 0.08;
+    const t = performance.now() * 0.001;
+    flame.current.scale.x = 0.85 + Math.sin(t * 18) * 0.1 + Math.sin(t * 7) * 0.04;
+    flame.current.scale.z = 0.85 + Math.cos(t * 16) * 0.1 + Math.cos(t * 6) * 0.04;
+    const flicker = 0.85 + Math.sin(t * 30) * 0.15 + (Math.random() - 0.5) * 0.1;
+    const k = burnerOn ? 1 : 0;
+    if (matBlue.current) matBlue.current.opacity = 0.7 * flicker * k;
+    if (matYellow.current) matYellow.current.opacity = 0.85 * flicker * k;
+    if (matCore.current) matCore.current.opacity = 1 * flicker * k;
+    if (heatLight.current) heatLight.current.intensity = burnerOn ? 2.4 + Math.sin(t * 25) * 0.5 : 0;
   });
 
   return (
@@ -46,36 +54,49 @@ export function Burner({ position }: { position: [number, number, number] }) {
         <meshStandardMaterial color="#aa2222" metalness={0.4} roughness={0.5} />
       </mesh>
 
-      {/* flame */}
+      {/* Flame ----------------------------------------------------------- */}
       <group ref={flame} position={[0, 0.32, 0]} scale={[1, 0, 1]}>
-        {/* outer cool flame */}
-        <mesh ref={(r) => r && (r as any)}>
-          <coneGeometry args={[0.13, 0.5, 16]} />
+        {/* cool outer envelope */}
+        <mesh>
+          <coneGeometry args={[0.16, 0.55, 20]} />
           <meshBasicMaterial
-            ref={flameMat2}
-            color="#3aa0ff"
+            ref={matBlue}
+            color="#3a8aff"
             transparent
-            opacity={0.7}
+            opacity={0}
             depthWrite={false}
             blending={THREE.AdditiveBlending}
+            toneMapped={false}
           />
         </mesh>
-        {/* inner hot flame */}
-        <mesh position={[0, -0.05, 0]}>
-          <coneGeometry args={[0.07, 0.32, 16]} />
+        {/* yellow body */}
+        <mesh position={[0, -0.04, 0]}>
+          <coneGeometry args={[0.1, 0.42, 18]} />
           <meshBasicMaterial
-            ref={flameMat1}
-            color="#ffd040"
+            ref={matYellow}
+            color="#ffb040"
             transparent
-            opacity={0.9}
+            opacity={0}
             depthWrite={false}
             blending={THREE.AdditiveBlending}
+            toneMapped={false}
           />
         </mesh>
-        {/* light source */}
-        {burnerOn && (
-          <pointLight color="#ff9a40" intensity={1.2} distance={2.2} decay={2} />
-        )}
+        {/* white-hot core */}
+        <mesh position={[0, -0.08, 0]}>
+          <coneGeometry args={[0.05, 0.26, 16]} />
+          <meshBasicMaterial
+            ref={matCore}
+            color="#ffe8b0"
+            transparent
+            opacity={0}
+            depthWrite={false}
+            blending={THREE.AdditiveBlending}
+            toneMapped={false}
+          />
+        </mesh>
+        {/* heat light source */}
+        <pointLight ref={heatLight} color="#ff9a40" intensity={0} distance={2.6} decay={2} />
       </group>
     </group>
   );
